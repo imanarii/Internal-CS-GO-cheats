@@ -1,7 +1,6 @@
 #include <iostream>
 #include <cmath>
 #include <Windows.h>
-#include <TlHelp32.h>
 #include <vector>
 #include <algorithm>
 #include "csgo.hpp"
@@ -13,10 +12,18 @@ struct vector
 };
 
 
-int sniper[4] = {9,40,38,11};
+const int sniper[4] = {9,40,38,11};
 int team;
-uintptr_t localEnt, moduleBase;
+uintptr_t localEnt, moduleBase, entity;
 
+void bunny()
+{
+    BYTE flag = *(BYTE*)(localEnt + hazedumper::netvars::m_fFlags);
+
+    if(GetAsyncKeyState(VK_SPACE) && flag & (1 << 0))
+        *(uintptr_t*)(moduleBase + hazedumper::signatures::dwForceJump) = 6;
+
+}
 
 void trigg()
 {
@@ -27,13 +34,13 @@ void trigg()
     int weaponEnt = *(int*)(moduleBase + hazedumper::signatures::dwEntityList + ((weapon & 0xFFF) - 1) * 0x10);
 
    
-
+    
     if (weaponEnt)
     {
         int myWeapon = *(int*)(weaponEnt + hazedumper::netvars::m_iItemDefinitionIndex);
         //std::cout << myWeapon << std::endl;
         bool isSniper;
-        int* found = std::find(sniper, std::end(sniper), myWeapon);
+        const int* found = std::find(sniper, std::end(sniper), myWeapon);
         if (found != std::end(sniper))
         {
             isSniper = true;
@@ -55,12 +62,9 @@ void trigg()
                     vector enemyLocation = *(vector*)(crossHairEnt + hazedumper::netvars::m_vecOrigin);
 
                     int dist = sqrt(pow(myLocation.x - enemyLocation.x, 2) + pow(myLocation.y - enemyLocation.y, 2) + pow(myLocation.z - enemyLocation.z, 2)) * 0.0254;
-                    //std::cout << dist << std::endl;
-                    float Delay = dist * 3.9;
+                    float Delay = dist * 3.3;
 
-                    // std::cout << "Crosshair Id: " << crosshairId << std::endl;
-
-
+ 
                     *(int*)(moduleBase + hazedumper::signatures::dwForceAttack) = 5;
                     Sleep(30);
                     *(int*)(moduleBase + hazedumper::signatures::dwForceAttack) = 4;
@@ -71,21 +75,15 @@ void trigg()
     }
 }
 
-void glowFunc()
+void glowFunc(uintptr_t entity)
 {
     uintptr_t glowObject = *(uintptr_t*)(moduleBase + hazedumper::signatures::dwGlowObjectManager);
     int EntityList = *(int*)(moduleBase + hazedumper::signatures::dwEntityList);
-    //std::cout << EntityList << std::endl;
-    //std::cout << "My Team: " << team << std::endl;
-    for (short int i = 0; i < 30; i++)
-    {
-
-        uintptr_t* entityPtr = (uintptr_t*)(moduleBase + hazedumper::signatures::dwEntityList + i * 0x10);
-        uintptr_t entity = *entityPtr;
-
+    
+   
         if (entity)
         {
-            //uintptr_t entity = *entityPtr;
+            
 
             int glowindx = *(int*)(entity + hazedumper::netvars::m_iGlowIndex);
             int entityTeam = *(int*)(entity + hazedumper::netvars::m_iTeamNum);
@@ -108,32 +106,27 @@ void glowFunc()
             }
             *(bool*)(glowObject + (glowindx * 0x38) + 0x24) = true;
             *(bool*)(glowObject + (glowindx * 0x38) + 0x25) = false;
-            //std::cout << "Entity Team: " << entityTeam << std::endl;
+            
 
             
         }
-
-    }
 }
 
-void radarFunc()
+void radarFunc(uintptr_t entity)
 {
-    for (int i = 0; i < 30; i++)
+    
+    if (entity)
     {
-        uintptr_t ent = *(uintptr_t*)(moduleBase + hazedumper::signatures::dwEntityList + i * 0x10);
-        if (ent)
-        {
-            *(uintptr_t*)(ent + hazedumper::netvars::m_bSpotted) = true;
-        }
+        *(uintptr_t*)(entity + hazedumper::netvars::m_bSpotted) = true;
     }
 }
 
 void noFlash()
-{
-    if (localEnt)
-    {
-        *(int*)(localEnt + hazedumper::netvars::m_flFlashMaxAlpha) = 0;
-    }
+{   
+      uintptr_t flashAddr = (int)(localEnt + hazedumper::netvars::m_flFlashMaxAlpha);
+      int* flash = (int*)(flashAddr);
+      if (*flash)
+          *flash = 0;
 }
 
 DWORD WINAPI HackThread(HMODULE hModule)
@@ -151,12 +144,9 @@ DWORD WINAPI HackThread(HMODULE hModule)
     bool triggerBot = false, glow = false, radar = false;
 
 
-    while (true)
+    while (!(GetAsyncKeyState(VK_END) & 1))
     {
-        if (GetAsyncKeyState(VK_END) & 1)
-        {
-            break;
-        }
+       
         if (GetAsyncKeyState(VK_F1) & 1)
         {
             triggerBot = !triggerBot;
@@ -169,35 +159,43 @@ DWORD WINAPI HackThread(HMODULE hModule)
         {
             radar = !radar;
         }
-
+        
         
         if (moduleBase)
         {
             uintptr_t* localEntPtr = (uintptr_t*)(moduleBase + hazedumper::signatures::dwLocalPlayer);
+
 
             if (localEntPtr)
             {
                 localEnt = *localEntPtr;
 
                 team = *(int*)(localEnt + hazedumper::netvars::m_iTeamNum);
-            
+                
+                if (glow || radar)
+                {
+                    for (short int i = 1; i < 64; i++)
+                    {
+
+                        uintptr_t* entityPtr = (uintptr_t*)(moduleBase + hazedumper::signatures::dwEntityList + i * 0x10);
+                        uintptr_t entity = *entityPtr;
+
+                        if (glow)
+                            glowFunc(entity);
+                        if (radar)
+                            radarFunc(entity);
+                    }
+                }
+           
 
                 if (triggerBot)
-                {
                     trigg();
-                }
+                
 
-                if (glow)
-                {
-                    glowFunc();
-                }
-
-                if (radar)
-                {
-                    radarFunc();  
-                }
-
-                noFlash();
+                if (localEnt)
+                    bunny();
+                    noFlash();
+                   
             }
         }
 
